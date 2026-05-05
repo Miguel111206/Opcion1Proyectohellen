@@ -24,6 +24,7 @@ services:
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
     ports:
       - "8000:8000"
+      - "8001:8000"
     depends_on:
       mysql:
         condition: service_healthy

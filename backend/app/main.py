@@ -1,5 +1,6 @@
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.orm import Session
 
 from .analysis import build_analysis, consumption_level_for, energy_for, estimate_power
@@ -15,11 +16,26 @@ app = FastAPI(title="BatteryCurve AI API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5723",
+        "http://127.0.0.1:5723",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class ApiPrefixMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.scope["path"].startswith("/api/"):
+            request.scope["path"] = request.scope["path"][4:]
+        return await call_next(request)
+
+
+app.add_middleware(ApiPrefixMiddleware)
 
 
 def owned_device(db: Session, user: User, device_id: int) -> Device:
