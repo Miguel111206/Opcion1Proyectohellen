@@ -2,7 +2,7 @@ from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
-from .analysis import build_analysis, energy_for
+from .analysis import build_analysis, consumption_level_for, energy_for, estimate_power
 from .auth import create_access_token, get_current_user, hash_password, verify_password
 from .database import Base, engine, get_db
 from .models import Activity, AnalysisResult, Device, User
@@ -65,6 +65,8 @@ def list_devices(user: User = Depends(get_current_user), db: Session = Depends(g
 
 @app.post("/devices", response_model=DeviceOut)
 def create_device(payload: DeviceCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if payload.type.lower() == "celular" and payload.battery_capacity_wh > 35:
+        raise HTTPException(status_code=422, detail="Para celulares usa una capacidad realista entre 10 y 25 Wh. 300 Wh haria que el porcentaje baje muy poco.")
     device = Device(user_id=user.id, **payload.model_dump())
     db.add(device)
     db.commit()
@@ -104,7 +106,18 @@ def list_activities(device_id: int, user: User = Depends(get_current_user), db: 
 @app.post("/devices/{device_id}/activities", response_model=ActivityOut)
 def create_activity(device_id: int, payload: ActivityCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     owned_device(db, user, device_id)
-    activity = Activity(user_id=user.id, device_id=device_id, **payload.model_dump())
+    power_watts = estimate_power(payload.app_name, payload.brightness, payload.connection_type, payload.saving_mode)
+    activity = Activity(
+        user_id=user.id,
+        device_id=device_id,
+        app_name=payload.app_name,
+        duration_minutes=payload.duration_minutes,
+        power_watts=power_watts,
+        consumption_level=consumption_level_for(power_watts),
+        brightness=payload.brightness,
+        connection_type=payload.connection_type,
+        saving_mode=payload.saving_mode,
+    )
     db.add(activity)
     db.commit()
     db.refresh(activity)

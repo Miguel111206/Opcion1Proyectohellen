@@ -44,14 +44,27 @@ function readableError(error: unknown): string {
 }
 
 const presets: Record<string, number> = {
-  Reposo: 1,
+  Reposo: 0.6,
   WhatsApp: 2,
-  Musica: 2.5,
+  Musica: 1.6,
   "Redes sociales": 3,
-  YouTube: 4,
-  Videollamada: 5,
-  Videojuego: 6,
+  YouTube: 4.8,
+  Videollamada: 6.2,
+  Videojuego: 8.5,
 };
+
+function estimatePower(app: string, brightness: string, connection: string, savingMode: string) {
+  const brightnessFactor: Record<string, number> = { Bajo: 0.85, Medio: 1, Alto: 1.22 };
+  const connectionFactor: Record<string, number> = { WiFi: 1, "Datos moviles": 1.18, "Sin conexion": 0.9 };
+  const savingFactor = savingMode === "Activado" ? 0.82 : 1;
+  return Number(((presets[app] || 3.2) * (brightnessFactor[brightness] || 1) * (connectionFactor[connection] || 1) * savingFactor).toFixed(2));
+}
+
+function levelFor(power: number) {
+  if (power < 2.2) return "Bajo";
+  if (power < 5.2) return "Medio";
+  return "Alto";
+}
 
 function App() {
   const [token, setToken] = React.useState(localStorage.getItem("token") || "");
@@ -162,8 +175,6 @@ function App() {
         body: JSON.stringify({
           app_name: String(form.get("app_name") || "").trim(),
           duration_minutes: Number(form.get("duration_minutes")),
-          power_watts: Number(form.get("power_watts")),
-          consumption_level: String(form.get("consumption_level") || "Medio"),
           brightness: String(form.get("brightness") || "Medio"),
           connection_type: String(form.get("connection_type") || "WiFi"),
           saving_mode: String(form.get("saving_mode") || "Desactivado"),
@@ -231,8 +242,8 @@ function App() {
                 <option>Tablet</option>
               </select>
             </Field>
-            <Field label="Capacidad de bateria (Wh)" hint="Energia total de la bateria. Ejemplo celular: 15 Wh; portatil: 60 Wh.">
-              <input name="battery_capacity_wh" type="number" step="0.1" min="1" placeholder="Ejemplo: 20" required />
+            <Field label="Capacidad de bateria (Wh)" hint="Celular realista: 10 a 25 Wh. Portatil: 40 a 90 Wh.">
+              <input name="battery_capacity_wh" type="number" step="0.1" min="1" max="120" placeholder="Ejemplo celular: 18" required />
             </Field>
             <button className="primary"><Plus size={18} /> Crear</button>
           </form>
@@ -324,9 +335,14 @@ function AuthScreen({ onSubmit, message }: { onSubmit: (payload: { name?: string
 
 function ActivityForm({ onSubmit, disabled }: { onSubmit: (event: React.FormEvent<HTMLFormElement>) => void; disabled: boolean }) {
   const [app, setApp] = React.useState("YouTube");
+  const [brightness, setBrightness] = React.useState("Medio");
+  const [connection, setConnection] = React.useState("WiFi");
+  const [savingMode, setSavingMode] = React.useState("Desactivado");
+  const estimatedPower = estimatePower(app, brightness, connection, savingMode);
+  const estimatedLevel = levelFor(estimatedPower);
   return (
     <form className="stack" onSubmit={onSubmit}>
-      <Field label="Aplicacion o actividad" hint="Selecciona lo que estuvo usando el usuario. Esto define una potencia sugerida.">
+      <Field label="Aplicacion o actividad" hint="Selecciona lo que estuvo usando el usuario. La app calcula la potencia base.">
         <select name="app_name" value={app} onChange={(event) => setApp(event.target.value)} disabled={disabled}>
           {Object.keys(presets).map((name) => <option key={name}>{name}</option>)}
         </select>
@@ -335,24 +351,23 @@ function ActivityForm({ onSubmit, disabled }: { onSubmit: (event: React.FormEven
         <Field label="Tiempo en pantalla (min)" hint="Minutos de uso. Ejemplo: 60 equivale a 1 hora.">
           <input name="duration_minutes" type="number" min="1" step="1" defaultValue="60" disabled={disabled} />
         </Field>
-        <Field label="Potencia estimada (W)" hint="Watts consumidos durante ese tramo. Puedes editarlo si tienes otro valor.">
-          <input key={app} name="power_watts" type="number" min="0.1" step="0.1" defaultValue={presets[app]} disabled={disabled} />
-        </Field>
+        <div className="estimate-box">
+          <span>Calculo automatico</span>
+          <strong>{estimatedPower} W · {estimatedLevel}</strong>
+          <small>Se calcula con actividad, brillo, conexion y modo ahorro.</small>
+        </div>
       </div>
       <div className="inline">
-        <Field label="Nivel de consumo" hint="Clasifica la exigencia de la app para la recomendacion.">
-          <select name="consumption_level" defaultValue="Medio" disabled={disabled}><option>Muy bajo</option><option>Bajo</option><option>Medio</option><option>Alto</option></select>
-        </Field>
         <Field label="Brillo de pantalla" hint="El brillo alto aumenta el consumo real del equipo.">
-          <select name="brightness" defaultValue="Medio" disabled={disabled}><option>Bajo</option><option>Medio</option><option>Alto</option></select>
+          <select name="brightness" value={brightness} onChange={(event) => setBrightness(event.target.value)} disabled={disabled}><option>Bajo</option><option>Medio</option><option>Alto</option></select>
+        </Field>
+        <Field label="Conexion activa" hint="Datos moviles suelen gastar mas que WiFi.">
+          <select name="connection_type" value={connection} onChange={(event) => setConnection(event.target.value)} disabled={disabled}><option>WiFi</option><option>Datos moviles</option><option>Sin conexion</option></select>
         </Field>
       </div>
-      <div className="inline">
-        <Field label="Conexion activa" hint="Datos moviles suelen gastar mas que WiFi.">
-          <select name="connection_type" defaultValue="WiFi" disabled={disabled}><option>WiFi</option><option>Datos moviles</option><option>Sin conexion</option></select>
-        </Field>
+      <div className="inline one">
         <Field label="Modo ahorro" hint="Indica si el equipo estaba reduciendo consumo.">
-          <select name="saving_mode" defaultValue="Desactivado" disabled={disabled}><option>Activado</option><option>Desactivado</option></select>
+          <select name="saving_mode" value={savingMode} onChange={(event) => setSavingMode(event.target.value)} disabled={disabled}><option>Activado</option><option>Desactivado</option></select>
         </Field>
       </div>
       <button className="primary" disabled={disabled}><Plus size={18} /> Agregar actividad</button>

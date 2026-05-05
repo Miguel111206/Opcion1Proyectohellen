@@ -3,6 +3,34 @@ from collections import defaultdict
 from .models import Activity, Device
 
 
+BASE_POWER_WATTS = {
+    "reposo": 0.6,
+    "whatsapp": 2.0,
+    "musica": 1.6,
+    "redes sociales": 3.0,
+    "youtube": 4.8,
+    "videollamada": 6.2,
+    "videojuego": 8.5,
+}
+
+
+def estimate_power(app_name: str, brightness: str, connection_type: str, saving_mode: str) -> float:
+    app_key = app_name.strip().lower()
+    base = BASE_POWER_WATTS.get(app_key, 3.2)
+    brightness_factor = {"bajo": 0.85, "medio": 1.0, "alto": 1.22}.get(brightness.lower(), 1.0)
+    connection_factor = {"wifi": 1.0, "datos moviles": 1.18, "sin conexion": 0.9}.get(connection_type.lower(), 1.0)
+    saving_factor = 0.82 if saving_mode.lower() == "activado" else 1.0
+    return round(base * brightness_factor * connection_factor * saving_factor, 2)
+
+
+def consumption_level_for(power_watts: float) -> str:
+    if power_watts < 2.2:
+        return "Bajo"
+    if power_watts < 5.2:
+        return "Medio"
+    return "Alto"
+
+
 def energy_for(activity: Activity) -> float:
     return activity.power_watts * activity.duration_minutes / 60
 
