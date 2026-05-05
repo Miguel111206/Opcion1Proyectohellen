@@ -268,9 +268,11 @@ input:focus, select:focus {
   border: 1px solid #b9dfef;
   background: #f8fdff;
   border-radius: 8px;
-  padding: 13px;
+  padding: 8px;
   display: grid;
-  gap: 4px;
+  grid-template-columns: 1fr 38px;
+  align-items: center;
+  gap: 8px;
 }
 
 .device.active {
@@ -281,6 +283,32 @@ input:focus, select:focus {
 .device span, .activity span, .metric span, .recommendation span, .muted {
   color: #5a6f68;
   font-size: 13px;
+}
+
+.device-main {
+  border: 0;
+  background: transparent;
+  padding: 5px;
+  text-align: left;
+  display: grid;
+  gap: 4px;
+  color: inherit;
+}
+
+.device-delete {
+  border: 0;
+  background: #eaf6fb;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: #0f2742;
+}
+
+.device-delete:hover {
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .summary {

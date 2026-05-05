@@ -76,7 +76,7 @@ def build_analysis(device: Device, activities: list[Activity]) -> dict:
         "battery_remaining_percent": round(remaining_percent, 2),
         "highest_consumption_app": highest_app,
         "critical_period": critical_period,
-        "recommendation": recommend(used_percent, remaining_percent, max_activity),
+        "recommendation": recommend(used_percent, remaining_percent, max_activity, activities),
         "timeline": timeline,
         "app_energy": [
             {"app_name": name, "energy_wh": round(energy, 2)}
@@ -85,21 +85,57 @@ def build_analysis(device: Device, activities: list[Activity]) -> dict:
     }
 
 
-def recommend(used_percent: float, remaining_percent: float, max_activity: Activity | None) -> str:
+def recommend(used_percent: float, remaining_percent: float, max_activity: Activity | None, activities: list[Activity]) -> str:
     if not max_activity:
         return "Agrega actividades para generar una recomendacion inteligente."
 
     app = max_activity.app_name.lower()
-    level = max_activity.consumption_level.lower()
+    total_minutes = sum(activity.duration_minutes for activity in activities)
+    high_brightness_minutes = sum(activity.duration_minutes for activity in activities if activity.brightness.lower() == "alto")
+    mobile_data_minutes = sum(activity.duration_minutes for activity in activities if activity.connection_type.lower() == "datos moviles")
+    saving_mode_off_minutes = sum(activity.duration_minutes for activity in activities if activity.saving_mode.lower() == "desactivado")
+
+    advice = []
 
     if remaining_percent < 20:
-        return "Bateria critica: activa modo ahorro, baja el brillo y limita apps de alto consumo."
-    if "juego" in app or "game" in app or level == "alto":
-        return "El mayor consumo viene de una app exigente: reduce graficos, brillo o tiempo de uso."
-    if "youtube" in app or "video" in app:
-        return "El video aumento el area bajo la curva: baja resolucion, brillo o usa WiFi estable."
-    if "llamada" in app or "meet" in app or "zoom" in app:
-        return "La videollamada consume bastante: cierra apps en segundo plano y evita datos moviles."
+        advice.append("Bateria critica: activa modo ahorro y evita abrir apps de alto consumo hasta cargar.")
+    elif remaining_percent < 35:
+        advice.append("Bateria baja: reduce brillo, usa WiFi y prioriza actividades necesarias.")
+    elif used_percent > 65:
+        advice.append("El area bajo la curva es alta para este periodo: conviene dividir las actividades intensivas.")
+
+    if "juego" in app or "game" in app or "videojuego" in app:
+        advice.append("El mayor consumo viene del videojuego: baja graficos, limita FPS, reduce brillo y juega conectado a WiFi.")
+    elif "youtube" in app or "video" in app:
+        advice.append("El video domina el consumo: baja resolucion, desactiva reproduccion automatica y usa brillo medio.")
+    elif "videollamada" in app or "llamada" in app or "meet" in app or "zoom" in app:
+        advice.append("La videollamada exige camara, microfono y red: cierra apps en segundo plano y evita datos moviles.")
+    elif "redes" in app or "instagram" in app or "tiktok" in app or "facebook" in app:
+        advice.append("Las redes sociales pueden consumir mucho por video corto y scroll continuo: baja brillo y limita el tiempo de pantalla.")
+    elif "whatsapp" in app:
+        advice.append("WhatsApp normalmente consume poco, pero llamadas, notas de voz y datos moviles pueden elevarlo.")
+    elif "musica" in app or "spotify" in app:
+        advice.append("Musica es eficiente si la pantalla esta apagada: descarga playlists y evita datos moviles.")
+    elif "reposo" in app:
+        advice.append("El reposo no deberia gastar mucho: revisa notificaciones, ubicacion y apps en segundo plano.")
+    else:
+        advice.append(f"{max_activity.app_name} fue la actividad critica: revisa brillo, red y tiempo de uso.")
+
+    if max_activity.power_watts >= 7:
+        advice.append("La potencia calculada es alta; cualquier minuto extra aumenta bastante el area bajo la curva.")
+    elif max_activity.power_watts >= 4.5:
+        advice.append("La potencia es media-alta; reducir brillo o cambiar a WiFi puede mejorar el resultado.")
+
+    if total_minutes and high_brightness_minutes / total_minutes >= 0.45:
+        advice.append("Gran parte del uso fue con brillo alto; cambiar a brillo medio puede reducir el consumo de forma visible.")
+    if total_minutes and mobile_data_minutes / total_minutes >= 0.35:
+        advice.append("Usaste muchos minutos con datos moviles; WiFi suele consumir menos energia y estabiliza la conexion.")
+    if total_minutes and saving_mode_off_minutes / total_minutes >= 0.7 and used_percent > 30:
+        advice.append("Activa modo ahorro durante actividades largas para recortar consumo sin dejar de usar el equipo.")
     if used_percent > 50:
-        return "El area total es alta: activa modo ahorro y distribuye mejor las actividades intensivas."
-    return "Consumo estable: conserva brillo medio y revisa apps que permanezcan activas por mucho tiempo."
+        advice.append("El consumo supero la mitad de la bateria estimada: programa carga o reduce las apps mas intensivas.")
+
+    if not advice:
+        advice.append("Consumo estable: conserva brillo medio y revisa apps que permanezcan activas por mucho tiempo.")
+
+    return " ".join(advice[:4])

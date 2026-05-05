@@ -209,6 +209,22 @@ function App() {
     }
   }
 
+  async function deleteDevice(id: number) {
+    setMessage("");
+    try {
+      await authFetch(`/devices/${id}`, { method: "DELETE" });
+      const nextDevices = devices.filter((device) => device.id !== id);
+      setDevices(nextDevices);
+      if (selectedDeviceId === id) {
+        setSelectedDeviceId(nextDevices[0]?.id || null);
+        setActivities([]);
+        setAnalysis(null);
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo eliminar el dispositivo");
+    }
+  }
+
   if (!token || !user) return <AuthScreen onSubmit={handleAuth} message={message} />;
 
   const selectedDevice = devices.find((device) => device.id === selectedDeviceId) || null;
@@ -249,10 +265,15 @@ function App() {
           </form>
           <div className="device-list">
             {devices.map((device) => (
-              <motion.button key={device.id} className={device.id === selectedDeviceId ? "device active" : "device"} onClick={() => setSelectedDeviceId(device.id)} whileHover={{ x: 4 }} whileTap={{ scale: 0.98 }}>
-                <strong>{device.name}</strong>
-                <span>{device.type} · {device.battery_capacity_wh} Wh</span>
-              </motion.button>
+              <motion.div key={device.id} className={device.id === selectedDeviceId ? "device active" : "device"} whileHover={{ x: 4 }}>
+                <button className="device-main" onClick={() => setSelectedDeviceId(device.id)}>
+                  <strong>{device.name}</strong>
+                  <span>{device.type} · {device.battery_capacity_wh} Wh</span>
+                </button>
+                <button className="device-delete" onClick={() => deleteDevice(device.id)} title="Eliminar dispositivo">
+                  <Trash2 size={17} />
+                </button>
+              </motion.div>
             ))}
           </div>
         </motion.aside>
