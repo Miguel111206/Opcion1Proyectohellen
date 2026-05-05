@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { motion } from "framer-motion";
-import { BatteryCharging, Cpu, LogOut, Play, Plus, Smartphone, Trash2, Zap } from "lucide-react";
+import { BatteryCharging, Clock3, Cpu, LogOut, Play, Plus, Smartphone, Trash2, Zap } from "lucide-react";
 import "./styles.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -219,22 +219,29 @@ function App() {
       <section className="grid">
         <motion.aside className="panel side" initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }}>
           <h2><Smartphone size={20} /> Dispositivos</h2>
+          <p className="helper">Registra el equipo que quieres analizar. La capacidad se mide en Wh; un celular suele estar entre 10 y 20 Wh, un portatil entre 40 y 90 Wh.</p>
           <form onSubmit={createDevice} className="stack">
-            <input name="name" placeholder="Nombre del dispositivo" required />
-            <select name="type" defaultValue="Celular">
-              <option>Celular</option>
-              <option>Portatil</option>
-              <option>Tablet</option>
-            </select>
-            <input name="battery_capacity_wh" type="number" step="0.1" min="1" placeholder="Capacidad Wh" required />
+            <Field label="Nombre del dispositivo" hint="Ejemplo: iPhone de Hellen, Portatil HP">
+              <input name="name" placeholder="Nombre del equipo" required />
+            </Field>
+            <Field label="Tipo de equipo" hint="Ayuda a interpretar el consumo.">
+              <select name="type" defaultValue="Celular">
+                <option>Celular</option>
+                <option>Portatil</option>
+                <option>Tablet</option>
+              </select>
+            </Field>
+            <Field label="Capacidad de bateria (Wh)" hint="Energia total de la bateria. Ejemplo celular: 15 Wh; portatil: 60 Wh.">
+              <input name="battery_capacity_wh" type="number" step="0.1" min="1" placeholder="Ejemplo: 20" required />
+            </Field>
             <button className="primary"><Plus size={18} /> Crear</button>
           </form>
           <div className="device-list">
             {devices.map((device) => (
-              <button key={device.id} className={device.id === selectedDeviceId ? "device active" : "device"} onClick={() => setSelectedDeviceId(device.id)}>
+              <motion.button key={device.id} className={device.id === selectedDeviceId ? "device active" : "device"} onClick={() => setSelectedDeviceId(device.id)} whileHover={{ x: 4 }} whileTap={{ scale: 0.98 }}>
                 <strong>{device.name}</strong>
                 <span>{device.type} · {device.battery_capacity_wh} Wh</span>
-              </button>
+              </motion.button>
             ))}
           </div>
         </motion.aside>
@@ -245,6 +252,7 @@ function App() {
           <div className="two">
             <motion.div className="panel" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }}>
               <h2><Cpu size={20} /> Agregar actividad</h2>
+              <p className="helper">Cada actividad es un tramo de la curva P(t). El tiempo en pantalla es la suma de los minutos registrados.</p>
               <ActivityForm onSubmit={createActivity} disabled={!selectedDevice} />
             </motion.div>
             <motion.div className="panel" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}>
@@ -254,13 +262,13 @@ function App() {
               </div>
               <div className="activity-list">
                 {activities.map((activity) => (
-                  <div className="activity" key={activity.id}>
+                  <motion.div className="activity" key={activity.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} whileHover={{ scale: 1.01 }}>
                     <div>
                       <strong>{activity.app_name}</strong>
                       <span>{activity.duration_minutes} min · {activity.power_watts} W · {activity.energy_wh} Wh</span>
                     </div>
                     <button onClick={() => deleteActivity(activity.id)} title="Eliminar"><Trash2 size={17} /></button>
-                  </div>
+                  </motion.div>
                 ))}
                 {!activities.length && <p className="muted">Agrega actividades para construir la curva de potencia.</p>}
               </div>
@@ -271,6 +279,16 @@ function App() {
         </section>
       </section>
     </main>
+  );
+}
+
+function Field({ label, hint, children }: { label: string; hint: string; children: React.ReactNode }) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      {children}
+      <small>{hint}</small>
+    </label>
   );
 }
 
@@ -308,20 +326,34 @@ function ActivityForm({ onSubmit, disabled }: { onSubmit: (event: React.FormEven
   const [app, setApp] = React.useState("YouTube");
   return (
     <form className="stack" onSubmit={onSubmit}>
-      <select name="app_name" value={app} onChange={(event) => setApp(event.target.value)} disabled={disabled}>
-        {Object.keys(presets).map((name) => <option key={name}>{name}</option>)}
-      </select>
+      <Field label="Aplicacion o actividad" hint="Selecciona lo que estuvo usando el usuario. Esto define una potencia sugerida.">
+        <select name="app_name" value={app} onChange={(event) => setApp(event.target.value)} disabled={disabled}>
+          {Object.keys(presets).map((name) => <option key={name}>{name}</option>)}
+        </select>
+      </Field>
       <div className="inline">
-        <input name="duration_minutes" type="number" min="1" step="1" defaultValue="60" disabled={disabled} />
-        <input name="power_watts" type="number" min="0.1" step="0.1" value={presets[app]} onChange={() => null} disabled={disabled} />
+        <Field label="Tiempo en pantalla (min)" hint="Minutos de uso. Ejemplo: 60 equivale a 1 hora.">
+          <input name="duration_minutes" type="number" min="1" step="1" defaultValue="60" disabled={disabled} />
+        </Field>
+        <Field label="Potencia estimada (W)" hint="Watts consumidos durante ese tramo. Puedes editarlo si tienes otro valor.">
+          <input key={app} name="power_watts" type="number" min="0.1" step="0.1" defaultValue={presets[app]} disabled={disabled} />
+        </Field>
       </div>
       <div className="inline">
-        <select name="consumption_level" defaultValue="Medio" disabled={disabled}><option>Muy bajo</option><option>Bajo</option><option>Medio</option><option>Alto</option></select>
-        <select name="brightness" defaultValue="Medio" disabled={disabled}><option>Bajo</option><option>Medio</option><option>Alto</option></select>
+        <Field label="Nivel de consumo" hint="Clasifica la exigencia de la app para la recomendacion.">
+          <select name="consumption_level" defaultValue="Medio" disabled={disabled}><option>Muy bajo</option><option>Bajo</option><option>Medio</option><option>Alto</option></select>
+        </Field>
+        <Field label="Brillo de pantalla" hint="El brillo alto aumenta el consumo real del equipo.">
+          <select name="brightness" defaultValue="Medio" disabled={disabled}><option>Bajo</option><option>Medio</option><option>Alto</option></select>
+        </Field>
       </div>
       <div className="inline">
-        <select name="connection_type" defaultValue="WiFi" disabled={disabled}><option>WiFi</option><option>Datos moviles</option><option>Sin conexion</option></select>
-        <select name="saving_mode" defaultValue="Desactivado" disabled={disabled}><option>Activado</option><option>Desactivado</option></select>
+        <Field label="Conexion activa" hint="Datos moviles suelen gastar mas que WiFi.">
+          <select name="connection_type" defaultValue="WiFi" disabled={disabled}><option>WiFi</option><option>Datos moviles</option><option>Sin conexion</option></select>
+        </Field>
+        <Field label="Modo ahorro" hint="Indica si el equipo estaba reduciendo consumo.">
+          <select name="saving_mode" defaultValue="Desactivado" disabled={disabled}><option>Activado</option><option>Desactivado</option></select>
+        </Field>
       </div>
       <button className="primary" disabled={disabled}><Plus size={18} /> Agregar actividad</button>
     </form>
@@ -331,6 +363,10 @@ function ActivityForm({ onSubmit, disabled }: { onSubmit: (event: React.FormEven
 function Summary({ analysis, device, activities }: { analysis: Analysis | null; device: Device | null; activities: Activity[] }) {
   const used = analysis?.battery_used_percent || 0;
   const remaining = analysis?.battery_remaining_percent ?? 100;
+  const screenMinutes = activities.reduce((total, activity) => total + activity.duration_minutes, 0);
+  const hours = Math.floor(screenMinutes / 60);
+  const minutes = Math.round(screenMinutes % 60);
+  const screenTime = hours ? `${hours}h ${minutes}m` : `${minutes}m`;
   return (
     <section className="summary">
       <motion.div className="metric battery-card" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
@@ -341,13 +377,14 @@ function Summary({ analysis, device, activities }: { analysis: Analysis | null; 
       <Metric label="Energia consumida" value={`${(analysis?.total_energy_wh || 0).toFixed(2)} Wh`} />
       <Metric label="Bateria consumida" value={`${used.toFixed(1)}%`} />
       <Metric label="Mayor consumo" value={analysis?.highest_consumption_app || (device ? "Pendiente" : "Sin dispositivo")} />
+      <Metric label="Tiempo en pantalla" value={screenTime} icon={<Clock3 size={18} />} />
       <Metric label="Actividades" value={String(activities.length)} />
     </section>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return <motion.div className="metric" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}><span>{label}</span><strong>{value}</strong></motion.div>;
+function Metric({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
+  return <motion.div className="metric" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} whileHover={{ y: -4 }}><span>{icon}{label}</span><strong>{value}</strong></motion.div>;
 }
 
 function Charts({ analysis }: { analysis: Analysis | null }) {
