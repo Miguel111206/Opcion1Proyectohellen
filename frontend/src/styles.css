@@ -182,6 +182,16 @@ input:focus, select:focus {
   font-weight: 700;
 }
 
+.notice {
+  margin: -8px 0 18px;
+  padding: 12px 14px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fff1f2;
+  color: #9f1239;
+  font-weight: 700;
+}
+
 .device-list, .activity-list {
   display: grid;
   gap: 10px;

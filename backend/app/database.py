@@ -6,7 +6,7 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "mysql+pymysql://battery_user:battery_pass@localhost:3308/batterycurve",
+    "mysql+pymysql://root:123456789@localhost:3308/proyectobateria",
 )
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)

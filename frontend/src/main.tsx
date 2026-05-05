@@ -32,6 +32,17 @@ type Analysis = {
   app_energy: { app_name: string; energy_wh: number }[];
 };
 
+function readableError(error: unknown): string {
+  if (Array.isArray(error)) {
+    return error.map((item) => `${item.loc?.slice(1).join(".") || "campo"}: ${item.msg}`).join(" | ");
+  }
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && "detail" in error) {
+    return readableError((error as { detail: unknown }).detail);
+  }
+  return "Error inesperado";
+}
+
 const presets: Record<string, number> = {
   Reposo: 1,
   WhatsApp: 2,
@@ -63,7 +74,7 @@ function App() {
       });
       if (!response.ok) {
         const error = await response.json().catch(() => ({ detail: "Error de conexion" }));
-        throw new Error(error.detail || "Error inesperado");
+        throw new Error(readableError(error));
       }
       return response.json();
     },
@@ -111,7 +122,7 @@ function App() {
     });
     const data = await response.json();
     if (!response.ok) {
-      setMessage(data.detail || "No se pudo iniciar");
+      setMessage(readableError(data));
       return;
     }
     localStorage.setItem("token", data.access_token);
@@ -121,50 +132,70 @@ function App() {
 
   async function createDevice(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setMessage("");
     const form = new FormData(event.currentTarget);
-    const device = await authFetch("/devices", {
-      method: "POST",
-      body: JSON.stringify({
-        name: form.get("name"),
-        type: form.get("type"),
-        battery_capacity_wh: Number(form.get("battery_capacity_wh")),
-      }),
-    });
-    setSelectedDeviceId(device.id);
-    await loadDevices();
-    event.currentTarget.reset();
+    try {
+      const device = await authFetch("/devices", {
+        method: "POST",
+        body: JSON.stringify({
+          name: String(form.get("name") || "").trim(),
+          type: String(form.get("type") || "").trim(),
+          battery_capacity_wh: Number(form.get("battery_capacity_wh")),
+        }),
+      });
+      setSelectedDeviceId(device.id);
+      await loadDevices();
+      event.currentTarget.reset();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo crear el dispositivo");
+    }
   }
 
   async function createActivity(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedDeviceId) return;
+    setMessage("");
     const form = new FormData(event.currentTarget);
-    await authFetch(`/devices/${selectedDeviceId}/activities`, {
-      method: "POST",
-      body: JSON.stringify({
-        app_name: form.get("app_name"),
-        duration_minutes: Number(form.get("duration_minutes")),
-        power_watts: Number(form.get("power_watts")),
-        consumption_level: form.get("consumption_level"),
-        brightness: form.get("brightness"),
-        connection_type: form.get("connection_type"),
-        saving_mode: form.get("saving_mode"),
-      }),
-    });
-    await loadActivities();
-    setAnalysis(null);
+    try {
+      await authFetch(`/devices/${selectedDeviceId}/activities`, {
+        method: "POST",
+        body: JSON.stringify({
+          app_name: String(form.get("app_name") || "").trim(),
+          duration_minutes: Number(form.get("duration_minutes")),
+          power_watts: Number(form.get("power_watts")),
+          consumption_level: String(form.get("consumption_level") || "Medio"),
+          brightness: String(form.get("brightness") || "Medio"),
+          connection_type: String(form.get("connection_type") || "WiFi"),
+          saving_mode: String(form.get("saving_mode") || "Desactivado"),
+        }),
+      });
+      await loadActivities();
+      setAnalysis(null);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo crear la actividad");
+    }
   }
 
   async function runAnalysis() {
     if (!selectedDeviceId) return;
-    const data = await authFetch(`/devices/${selectedDeviceId}/analysis`, { method: "POST", body: "{}" });
-    setAnalysis(data);
+    setMessage("");
+    try {
+      const data = await authFetch(`/devices/${selectedDeviceId}/analysis`, { method: "POST", body: "{}" });
+      setAnalysis(data);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo ejecutar el analisis");
+    }
   }
 
   async function deleteActivity(id: number) {
-    await authFetch(`/activities/${id}`, { method: "DELETE" });
-    await loadActivities();
-    setAnalysis(null);
+    setMessage("");
+    try {
+      await authFetch(`/activities/${id}`, { method: "DELETE" });
+      await loadActivities();
+      setAnalysis(null);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo eliminar la actividad");
+    }
   }
 
   if (!token || !user) return <AuthScreen onSubmit={handleAuth} message={message} />;
@@ -183,6 +214,7 @@ function App() {
           <button onClick={logout} title="Cerrar sesion"><LogOut size={18} /></button>
         </div>
       </header>
+      {message && <div className="notice">{message}</div>}
 
       <section className="grid">
         <motion.aside className="panel side" initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }}>

@@ -20,6 +20,9 @@ Servicios:
 - Backend API: http://localhost:8000
 - Docs API: http://localhost:8000/docs
 - MySQL local: localhost:3308
+- DB: proyectobateria
+- Usuario DB: root
+- Password DB: 123456789
 
 ## Usuario de prueba sugerido
 
