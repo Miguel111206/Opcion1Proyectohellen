@@ -31,7 +31,7 @@ class TokenOut(BaseModel):
 class DeviceCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     type: str = Field(min_length=2, max_length=60)
-    battery_capacity_wh: float = Field(gt=0, le=120)
+    battery_capacity_wh: float = Field(gt=0, le=300)
 
 
 class DeviceOut(DeviceCreate):
