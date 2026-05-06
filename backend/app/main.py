@@ -1,6 +1,12 @@
+import logging
+import os
+import time
+
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from .analysis import build_analysis, consumption_level_for, energy_for, estimate_power
@@ -10,18 +16,40 @@ from .models import Activity, AnalysisResult, Device, User
 from .schemas import ActivityCreate, ActivityOut, AnalysisOut, DeviceCreate, DeviceOut, LoginIn, TokenOut, UserCreate, UserOut
 
 
-Base.metadata.create_all(bind=engine)
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+logger = logging.getLogger("batterycurve.api")
+
+
+def initialize_database(max_attempts: int = 20, delay_seconds: float = 2.0) -> None:
+    for attempt in range(1, max_attempts + 1):
+        try:
+            Base.metadata.create_all(bind=engine)
+            logger.info("Base de datos lista")
+            return
+        except OperationalError:
+            if attempt == max_attempts:
+                logger.exception("No se pudo conectar a la base de datos despues de %s intentos", max_attempts)
+                raise
+            logger.warning("Base de datos no disponible, reintento %s/%s", attempt, max_attempts)
+            time.sleep(delay_seconds)
+
+
+initialize_database()
 
 app = FastAPI(title="BatteryCurve AI API")
 
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5723,http://127.0.0.1:5723",
+    ).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5723",
-        "http://127.0.0.1:5723",
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -36,6 +64,15 @@ class ApiPrefixMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(ApiPrefixMiddleware)
+
+
+@app.exception_handler(Exception)
+async def unexpected_error_handler(request: Request, exc: Exception):
+    logger.exception("Error inesperado en %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Error interno del servidor. Revisa los logs del backend para mas detalle."},
+    )
 
 
 def owned_device(db: Session, user: User, device_id: int) -> Device:

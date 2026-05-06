@@ -419,8 +419,68 @@ input:focus, select:focus {
   color: #5a6f68;
 }
 
+.reports {
+  margin-top: 20px;
+}
+
+.report-title {
+  margin-bottom: 16px;
+}
+
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #b9dfef;
+  border-radius: 8px;
+  background: #f8fdff;
+}
+
+.segmented button {
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: transparent;
+  color: #17324a;
+  font-weight: 800;
+}
+
+.segmented button.active {
+  background: #0f2742;
+  color: white;
+}
+
+.report-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.report-charts {
+  margin-bottom: 20px;
+}
+
+.formula-box {
+  border: 1px solid #b9dfef;
+  border-radius: 8px;
+  background: #f8fdff;
+  padding: 16px;
+}
+
+.formula-box h2 {
+  margin-bottom: 10px;
+}
+
+.formula-box p {
+  margin: 8px 0;
+  color: #17324a;
+  line-height: 1.45;
+}
+
 @media (max-width: 1100px) {
-  .grid, .two, .charts, .summary {
+  .grid, .two, .charts, .summary, .report-summary {
     grid-template-columns: 1fr;
   }
 
@@ -441,6 +501,20 @@ input:focus, select:focus {
 
   .inline {
     grid-template-columns: 1fr;
+  }
+
+  .panel-title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .segmented {
+    width: 100%;
+  }
+
+  .segmented button {
+    flex: 1;
+    padding-inline: 8px;
   }
 
   .metric strong {
