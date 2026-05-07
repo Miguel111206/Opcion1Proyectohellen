@@ -1,8 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { motion } from "framer-motion";
-import { BatteryCharging, Clock3, Cpu, LogOut, Play, Plus, Smartphone, Trash2, Zap } from "lucide-react";
+import { BatteryCharging, CalendarDays, Clock3, Cpu, FileText, LogOut, Play, Plus, Smartphone, Trash2, Zap } from "lucide-react";
 import "./styles.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -19,6 +19,7 @@ type Activity = {
   connection_type: string;
   saving_mode: string;
   energy_wh: number;
+  created_at: string;
 };
 type Analysis = {
   id: number;
@@ -30,6 +31,13 @@ type Analysis = {
   recommendation: string;
   timeline: { time_label: string; hour: number; power_watts: number; battery_remaining: number; app_name: string }[];
   app_energy: { app_name: string; energy_wh: number }[];
+};
+type ReportPeriod = "daily" | "weekly" | "monthly";
+
+const reportLabels: Record<ReportPeriod, string> = {
+  daily: "Diario",
+  weekly: "Semanal",
+  monthly: "Mensual",
 };
 
 function readableError(error: unknown): string {
@@ -124,7 +132,14 @@ function App() {
 
   React.useEffect(() => {
     if (!token) return;
-    authFetch("/auth/me").then(setUser).then(loadDevices).catch(() => logout());
+    authFetch("/auth/me")
+      .then(setUser)
+      .then(loadDevices)
+      .catch((error) => {
+        console.error("No se pudo validar la sesion actual", error);
+        setMessage(error instanceof Error ? error.message : "No se pudo validar la sesion");
+        logout();
+      });
   }, [token]);
 
   React.useEffect(() => {
@@ -332,6 +347,7 @@ function App() {
           </div>
 
           <Charts analysis={analysis} />
+          <Reports activities={activities} device={selectedDevice} />
         </section>
       </section>
     </main>
@@ -497,6 +513,104 @@ function Charts({ analysis }: { analysis: Analysis | null }) {
       </motion.div>
     </section>
   );
+}
+
+function Reports({ activities, device }: { activities: Activity[]; device: Device | null }) {
+  const [period, setPeriod] = React.useState<ReportPeriod>("daily");
+  const report = React.useMemo(() => buildReport(activities, device, period), [activities, device, period]);
+
+  return (
+    <section className="panel reports">
+      <div className="panel-title report-title">
+        <h2><FileText size={20} /> Informe de dispositivos</h2>
+        <div className="segmented" aria-label="Periodo del informe">
+          {(Object.keys(reportLabels) as ReportPeriod[]).map((key) => (
+            <button key={key} className={period === key ? "active" : ""} onClick={() => setPeriod(key)}>
+              {reportLabels[key]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="report-summary">
+        <Metric label="Periodo" value={reportLabels[period]} icon={<CalendarDays size={18} />} />
+        <Metric label="Energia del informe" value={`${report.totalEnergy.toFixed(2)} Wh`} />
+        <Metric label="Bateria estimada usada" value={`${report.usedPercent.toFixed(1)}%`} />
+        <Metric label="Actividades incluidas" value={String(report.activities.length)} />
+      </div>
+
+      {report.activities.length ? (
+        <>
+          <div className="charts report-charts">
+            <div className="chart">
+              <h2>Energia por actividad</h2>
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={report.energyByActivity}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#d8e1de" />
+                  <XAxis dataKey="label" />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="energy_wh" fill="#0ea5e9" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="chart">
+              <h2>Bateria restante acumulada</h2>
+              <ResponsiveContainer width="100%" height={250}>
+                <LineChart data={report.batteryCurve}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#d8e1de" />
+                  <XAxis dataKey="label" />
+                  <YAxis domain={[0, 100]} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="battery_remaining" stroke="#16a34a" strokeWidth={3} dot />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+          <div className="formula-box">
+            <h2>Formula de calculo 2</h2>
+            <p><strong>1. Energia por actividad:</strong> E(Wh) = P(W) x tiempo(min) / 60. Esta formula produce las barras de energia por actividad.</p>
+            <p><strong>2. Bateria usada:</strong> bateria usada(%) = energia total(Wh) / capacidad de bateria(Wh) x 100. La curva de bateria restante sale de 100 - bateria usada acumulada.</p>
+            <p>Para este informe: {report.totalEnergy.toFixed(2)} Wh / {device?.battery_capacity_wh.toFixed(2) || "0.00"} Wh x 100 = {report.usedPercent.toFixed(1)}% de bateria usada.</p>
+          </div>
+        </>
+      ) : (
+        <p className="muted">No hay actividades dentro del periodo seleccionado para generar el informe.</p>
+      )}
+    </section>
+  );
+}
+
+function buildReport(activities: Activity[], device: Device | null, period: ReportPeriod) {
+  const now = new Date();
+  const start = new Date(now);
+  if (period === "daily") start.setHours(0, 0, 0, 0);
+  if (period === "weekly") start.setDate(now.getDate() - 6);
+  if (period === "monthly") start.setDate(now.getDate() - 29);
+  if (period !== "daily") start.setHours(0, 0, 0, 0);
+
+  const filtered = activities.filter((activity) => new Date(activity.created_at) >= start);
+  const totalEnergy = filtered.reduce((sum, activity) => sum + activity.energy_wh, 0);
+  const capacity = device?.battery_capacity_wh || 0;
+  const usedPercent = capacity ? (totalEnergy / capacity) * 100 : 0;
+  let usedAccumulated = 0;
+
+  return {
+    activities: filtered,
+    totalEnergy,
+    usedPercent,
+    energyByActivity: filtered.map((activity, index) => ({
+      label: `${index + 1}. ${activity.app_name}`,
+      energy_wh: Number(activity.energy_wh.toFixed(2)),
+    })),
+    batteryCurve: filtered.map((activity, index) => {
+      usedAccumulated += capacity ? (activity.energy_wh / capacity) * 100 : 0;
+      return {
+        label: `${index + 1}. ${activity.app_name}`,
+        battery_remaining: Number(Math.max(0, 100 - usedAccumulated).toFixed(2)),
+      };
+    }),
+  };
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(<App />);
