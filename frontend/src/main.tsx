@@ -13,6 +13,7 @@ type Activity = {
   id: number;
   app_name: string;
   duration_minutes: number;
+  activity_date: string;
   power_watts: number;
   consumption_level: string;
   brightness: string;
@@ -31,13 +32,18 @@ type Analysis = {
   recommendation: string;
   timeline: { time_label: string; hour: number; power_watts: number; battery_remaining: number; app_name: string }[];
   app_energy: { app_name: string; energy_wh: number }[];
+  daily_energy: { date: string; energy_wh: number; battery_used_percent: number; screen_minutes: number }[];
+  highest_consumption_day: string;
+  lowest_consumption_day: string;
+  period_label: string;
 };
-type ReportPeriod = "daily" | "weekly" | "monthly";
+type ReportPeriod = "day" | "week" | "month" | "all";
 
 const reportLabels: Record<ReportPeriod, string> = {
-  daily: "Diario",
-  weekly: "Semanal",
-  monthly: "Mensual",
+  day: "Diario",
+  week: "Semanal",
+  month: "Mensual",
+  all: "Todo",
 };
 
 function readableError(error: unknown): string {
@@ -81,6 +87,8 @@ function App() {
   const [selectedDeviceId, setSelectedDeviceId] = React.useState<number | null>(null);
   const [activities, setActivities] = React.useState<Activity[]>([]);
   const [analysis, setAnalysis] = React.useState<Analysis | null>(null);
+  const [analysisPeriod, setAnalysisPeriod] = React.useState<ReportPeriod>("all");
+  const [referenceDate, setReferenceDate] = React.useState(() => new Date().toISOString().slice(0, 10));
   const [message, setMessage] = React.useState("");
 
   const authFetch = React.useCallback(
@@ -181,8 +189,9 @@ function App() {
 
   async function createDevice(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     setMessage("");
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formElement);
     try {
       const device = await authFetch("/devices", {
         method: "POST",
@@ -197,7 +206,7 @@ function App() {
       setActivities([]);
       setAnalysis(null);
       setMessage("");
-      event.currentTarget.reset();
+      formElement.reset();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No se pudo crear el dispositivo");
     }
@@ -214,6 +223,7 @@ function App() {
         body: JSON.stringify({
           app_name: String(form.get("app_name") || "").trim(),
           duration_minutes: Number(form.get("duration_minutes")),
+          activity_date: String(form.get("activity_date") || new Date().toISOString().slice(0, 10)),
           brightness: String(form.get("brightness") || "Medio"),
           connection_type: String(form.get("connection_type") || "WiFi"),
           saving_mode: String(form.get("saving_mode") || "Desactivado"),
@@ -230,7 +240,9 @@ function App() {
     if (!selectedDeviceId) return;
     setMessage("");
     try {
-      const data = await authFetch(`/devices/${selectedDeviceId}/analysis`, { method: "POST", body: "{}" });
+      const params = new URLSearchParams({ period: analysisPeriod });
+      if (analysisPeriod !== "all") params.set("reference_date", referenceDate);
+      const data = await authFetch(`/devices/${selectedDeviceId}/analysis?${params.toString()}`, { method: "POST", body: "{}" });
       setAnalysis(data);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No se pudo ejecutar el analisis");
@@ -286,22 +298,7 @@ function App() {
         <motion.aside className="panel side" initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }}>
           <h2><Smartphone size={20} /> Dispositivos</h2>
           <p className="helper">Registra el equipo que quieres analizar. La capacidad se mide en Wh; un celular suele estar entre 10 y 20 Wh, un portatil entre 40 y 90 Wh.</p>
-          <form onSubmit={createDevice} className="stack">
-            <Field label="Nombre del dispositivo" hint="Ejemplo: iPhone de Hellen, Portatil HP">
-              <input name="name" placeholder="Nombre del equipo" required />
-            </Field>
-            <Field label="Tipo de equipo" hint="Ayuda a interpretar el consumo.">
-              <select name="type" defaultValue="Celular">
-                <option>Celular</option>
-                <option>Portatil</option>
-                <option>Tablet</option>
-              </select>
-            </Field>
-            <Field label="Capacidad de bateria (Wh)" hint="Celular realista: 10 a 25 Wh. Portatil: 40 a 90 Wh.">
-              <input name="battery_capacity_wh" type="number" step="0.1" min="1" max="120" placeholder="Ejemplo celular: 18" required />
-            </Field>
-            <button className="primary"><Plus size={18} /> Crear</button>
-          </form>
+          <DeviceForm onSubmit={createDevice} />
           <div className="device-list">
             {devices.map((device) => (
               <motion.div key={device.id} className={device.id === selectedDeviceId ? "device active" : "device"} whileHover={{ x: 4 }}>
@@ -330,6 +327,16 @@ function App() {
               <div className="panel-title">
                 <h2><Zap size={20} /> Actividades</h2>
                 <button className="primary" onClick={runAnalysis} disabled={!selectedDevice || activities.length === 0}><Play size={18} /> Analizar</button>
+              </div>
+              <div className="analysis-filters">
+                <div className="segmented" aria-label="Periodo del analisis">
+                  {(Object.keys(reportLabels) as ReportPeriod[]).map((key) => (
+                    <button key={key} className={analysisPeriod === key ? "active" : ""} onClick={() => setAnalysisPeriod(key)}>
+                      {reportLabels[key]}
+                    </button>
+                  ))}
+                </div>
+                <input type="date" value={referenceDate} onChange={(event) => setReferenceDate(event.target.value)} disabled={analysisPeriod === "all"} />
               </div>
               <div className="activity-list">
                 {activities.map((activity) => (
@@ -361,6 +368,72 @@ function Field({ label, hint, children }: { label: string; hint: string; childre
       {children}
       <small>{hint}</small>
     </label>
+  );
+}
+
+const batteryGuides: Record<string, { hint: string; placeholder: string; min: number; max: number; suggestions: number[] }> = {
+  Celular: {
+    hint: "Celular realista: 10 a 25 Wh. Gama media suele estar cerca de 15 a 19 Wh.",
+    placeholder: "Ejemplo: 18",
+    min: 8,
+    max: 35,
+    suggestions: [15, 18, 20],
+  },
+  Tablet: {
+    hint: "Tablet realista: 20 a 45 Wh. Una tablet grande puede acercarse a 40 Wh.",
+    placeholder: "Ejemplo: 32",
+    min: 15,
+    max: 60,
+    suggestions: [25, 32, 40],
+  },
+  Portatil: {
+    hint: "Portatil realista: 40 a 90 Wh. Equipos livianos usan menos; gaming usa mas.",
+    placeholder: "Ejemplo: 60",
+    min: 30,
+    max: 120,
+    suggestions: [45, 60, 80],
+  },
+};
+
+function DeviceForm({ onSubmit }: { onSubmit: (event: React.FormEvent<HTMLFormElement>) => void }) {
+  const [type, setType] = React.useState("Celular");
+  const [capacity, setCapacity] = React.useState("");
+  const guide = batteryGuides[type];
+
+  return (
+    <form onSubmit={onSubmit} className="stack">
+      <Field label="Nombre del dispositivo" hint="Ejemplo: iPhone de Hellen, Portatil HP">
+        <input name="name" placeholder="Nombre del equipo" required />
+      </Field>
+      <Field label="Tipo de equipo" hint="La guia de Wh cambia segun el tipo elegido.">
+        <select name="type" value={type} onChange={(event) => { setType(event.target.value); setCapacity(""); }}>
+          <option>Celular</option>
+          <option>Portatil</option>
+          <option>Tablet</option>
+        </select>
+      </Field>
+      <Field label="Capacidad de bateria (Wh)" hint={guide.hint}>
+        <input
+          name="battery_capacity_wh"
+          type="number"
+          step="0.1"
+          min={guide.min}
+          max={guide.max}
+          placeholder={guide.placeholder}
+          value={capacity}
+          onChange={(event) => setCapacity(event.target.value)}
+          required
+        />
+      </Field>
+      <div className="suggestions" aria-label="Valores sugeridos">
+        {guide.suggestions.map((value) => (
+          <button type="button" key={value} onClick={() => setCapacity(String(value))}>
+            {value} Wh
+          </button>
+        ))}
+      </div>
+      <button className="primary"><Plus size={18} /> Crear</button>
+    </form>
   );
 }
 
@@ -403,6 +476,9 @@ function ActivityForm({ onSubmit, disabled }: { onSubmit: (event: React.FormEven
   const estimatedLevel = levelFor(estimatedPower);
   return (
     <form className="stack" onSubmit={onSubmit}>
+      <Field label="Fecha de la medicion" hint="Selecciona el dia real en que se uso el dispositivo para comparar consumos diarios, semanales y mensuales.">
+        <input name="activity_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} disabled={disabled} />
+      </Field>
       <Field label="Aplicacion o actividad" hint="Selecciona lo que estuvo usando el usuario. La app calcula la potencia base.">
         <select name="app_name" value={app} onChange={(event) => setApp(event.target.value)} disabled={disabled}>
           {Object.keys(presets).map((name) => <option key={name}>{name}</option>)}
@@ -506,9 +582,24 @@ function Charts({ analysis }: { analysis: Analysis | null }) {
           </BarChart>
         </ResponsiveContainer>
       </motion.div>
+      <motion.div className="panel chart" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.14 }}>
+        <h2>Consumo por fecha</h2>
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={analysis.daily_energy}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#d8e1de" />
+            <XAxis dataKey="date" />
+            <YAxis />
+            <Tooltip />
+            <Bar dataKey="energy_wh" fill="#0ea5e9" radius={[6, 6, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </motion.div>
       <motion.div className="panel recommendation" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.16 }}>
         <h2>Recomendacion inteligente</h2>
         <p>{analysis.recommendation}</p>
+        <span>{analysis.period_label}</span>
+        <span>{analysis.highest_consumption_day}</span>
+        <span>{analysis.lowest_consumption_day}</span>
         <span>Periodo critico: {analysis.critical_period}</span>
       </motion.div>
     </section>
@@ -516,7 +607,7 @@ function Charts({ analysis }: { analysis: Analysis | null }) {
 }
 
 function Reports({ activities, device }: { activities: Activity[]; device: Device | null }) {
-  const [period, setPeriod] = React.useState<ReportPeriod>("daily");
+  const [period, setPeriod] = React.useState<ReportPeriod>("all");
   const report = React.useMemo(() => buildReport(activities, device, period), [activities, device, period]);
 
   return (
@@ -584,12 +675,12 @@ function Reports({ activities, device }: { activities: Activity[]; device: Devic
 function buildReport(activities: Activity[], device: Device | null, period: ReportPeriod) {
   const now = new Date();
   const start = new Date(now);
-  if (period === "daily") start.setHours(0, 0, 0, 0);
-  if (period === "weekly") start.setDate(now.getDate() - 6);
-  if (period === "monthly") start.setDate(now.getDate() - 29);
-  if (period !== "daily") start.setHours(0, 0, 0, 0);
+  if (period === "day") start.setHours(0, 0, 0, 0);
+  if (period === "week") start.setDate(now.getDate() - 6);
+  if (period === "month") start.setDate(now.getDate() - 29);
+  if (period !== "day") start.setHours(0, 0, 0, 0);
 
-  const filtered = activities.filter((activity) => new Date(activity.created_at) >= start);
+  const filtered = period === "all" ? activities : activities.filter((activity) => new Date(`${activity.activity_date}T00:00:00`) >= start);
   const totalEnergy = filtered.reduce((sum, activity) => sum + activity.energy_wh, 0);
   const capacity = device?.battery_capacity_wh || 0;
   const usedPercent = capacity ? (totalEnergy / capacity) * 100 : 0;
@@ -601,12 +692,13 @@ function buildReport(activities: Activity[], device: Device | null, period: Repo
     usedPercent,
     energyByActivity: filtered.map((activity, index) => ({
       label: `${index + 1}. ${activity.app_name}`,
+      date: activity.activity_date,
       energy_wh: Number(activity.energy_wh.toFixed(2)),
     })),
     batteryCurve: filtered.map((activity, index) => {
       usedAccumulated += capacity ? (activity.energy_wh / capacity) * 100 : 0;
       return {
-        label: `${index + 1}. ${activity.app_name}`,
+        label: activity.activity_date,
         battery_remaining: Number(Math.max(0, 100 - usedAccumulated).toFixed(2)),
       };
     }),

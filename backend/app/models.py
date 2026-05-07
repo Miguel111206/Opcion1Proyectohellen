@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -46,6 +46,7 @@ class Activity(Base):
     brightness: Mapped[str] = mapped_column(String(40))
     connection_type: Mapped[str] = mapped_column(String(40))
     saving_mode: Mapped[str] = mapped_column(String(20))
+    activity_date: Mapped[date] = mapped_column(Date, default=date.today)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     device: Mapped[Device] = relationship(back_populates="activities")

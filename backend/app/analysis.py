@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import date
 
 from .models import Activity, Device
 
@@ -38,51 +39,78 @@ def energy_for(activity: Activity) -> float:
 def build_analysis(device: Device, activities: list[Activity]) -> dict:
     total_energy = sum(energy_for(activity) for activity in activities)
     used_percent = (total_energy / device.battery_capacity_wh) * 100
-    remaining_percent = max(0, 100 - used_percent)
 
     app_energy = defaultdict(float)
+    daily_energy = defaultdict(float)
+    daily_minutes = defaultdict(float)
     timeline = []
-    elapsed_minutes = 0.0
-    remaining = 100.0
+    elapsed_minutes_by_day = defaultdict(float)
+    remaining_by_day = defaultdict(lambda: 100.0)
     max_activity = None
     max_energy = -1.0
 
     for activity in activities:
         energy = energy_for(activity)
         app_energy[activity.app_name] += energy
+        activity_day = activity.activity_date or activity.created_at.date()
+        daily_energy[activity_day] += energy
+        daily_minutes[activity_day] += activity.duration_minutes
         if energy > max_energy:
             max_energy = energy
             max_activity = activity
 
-        start_hour = elapsed_minutes / 60
-        elapsed_minutes += activity.duration_minutes
-        remaining = max(0, remaining - (energy / device.battery_capacity_wh) * 100)
+        start_minutes = elapsed_minutes_by_day[activity_day]
+        start_hour = start_minutes / 60
+        elapsed_minutes_by_day[activity_day] += activity.duration_minutes
+        remaining_by_day[activity_day] = max(0, remaining_by_day[activity_day] - (energy / device.battery_capacity_wh) * 100)
         timeline.append(
             {
-                "time_label": f"{start_hour:.2f}h - {elapsed_minutes / 60:.2f}h",
-                "hour": round(elapsed_minutes / 60, 2),
+                "time_label": f"{activity_day} · {start_hour:.2f}h - {elapsed_minutes_by_day[activity_day] / 60:.2f}h",
+                "hour": round(elapsed_minutes_by_day[activity_day] / 60, 2),
                 "power_watts": round(activity.power_watts, 2),
-                "battery_remaining": round(remaining, 2),
+                "battery_remaining": round(remaining_by_day[activity_day], 2),
                 "app_name": activity.app_name,
             }
         )
 
     highest_app = max_activity.app_name if max_activity else "Sin datos"
     critical_period = timeline[activities.index(max_activity)]["time_label"] if max_activity else "Sin datos"
+    daily_rows = [
+        {
+            "date": day,
+            "energy_wh": round(energy, 2),
+            "battery_used_percent": round((energy / device.battery_capacity_wh) * 100, 2),
+            "screen_minutes": round(daily_minutes[day], 2),
+        }
+        for day, energy in sorted(daily_energy.items())
+    ]
+    highest_day = max(daily_rows, key=lambda item: item["energy_wh"]) if daily_rows else None
+    lowest_day = min(daily_rows, key=lambda item: item["energy_wh"]) if daily_rows else None
+    used_percent = max((row["battery_used_percent"] for row in daily_rows), default=0)
+    battery_remaining_percent = min((100 - row["battery_used_percent"] for row in daily_rows), default=100)
 
     return {
         "total_energy_wh": round(total_energy, 2),
         "battery_used_percent": round(used_percent, 2),
-        "battery_remaining_percent": round(remaining_percent, 2),
+        "battery_remaining_percent": round(max(0, battery_remaining_percent), 2),
         "highest_consumption_app": highest_app,
         "critical_period": critical_period,
-        "recommendation": recommend(used_percent, remaining_percent, max_activity, activities),
+        "recommendation": recommend(used_percent, max(0, battery_remaining_percent), max_activity, activities),
         "timeline": timeline,
         "app_energy": [
             {"app_name": name, "energy_wh": round(energy, 2)}
             for name, energy in sorted(app_energy.items(), key=lambda item: item[1], reverse=True)
         ],
+        "daily_energy": daily_rows,
+        "highest_consumption_day": describe_day(highest_day, "Mayor consumo") if highest_day else "Sin datos",
+        "lowest_consumption_day": describe_day(lowest_day, "Menor consumo") if lowest_day else "Sin datos",
     }
+
+
+def describe_day(day: dict | None, label: str) -> str:
+    if not day:
+        return "Sin datos"
+    return f"{label}: {day['date']} con {day['energy_wh']} Wh ({day['battery_used_percent']}%)."
 
 
 def recommend(used_percent: float, remaining_percent: float, max_activity: Activity | None, activities: list[Activity]) -> str:

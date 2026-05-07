@@ -263,6 +263,25 @@ input:focus, select:focus {
   line-height: 1.35;
 }
 
+.suggestions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.suggestions button {
+  border: 1px solid #8bd3f7;
+  border-radius: 8px;
+  background: #e8f8ff;
+  color: #075985;
+  padding: 9px 8px;
+  font-weight: 800;
+}
+
+.suggestions button:hover {
+  background: #d8f4ff;
+}
+
 .device {
   text-align: left;
   border: 1px solid #b9dfef;
@@ -365,6 +384,13 @@ input:focus, select:focus {
   gap: 12px;
 }
 
+.analysis-filters {
+  display: grid;
+  grid-template-columns: 1fr 170px;
+  gap: 10px;
+  margin: 10px 0 14px;
+}
+
 .activity {
   border: 1px solid #cce8f4;
   border-radius: 8px;
@@ -409,6 +435,8 @@ input:focus, select:focus {
 
 .recommendation span {
   color: #a7f3d0;
+  display: block;
+  margin-top: 8px;
 }
 
 .empty {
@@ -500,6 +528,10 @@ input:focus, select:focus {
   }
 
   .inline {
+    grid-template-columns: 1fr;
+  }
+
+  .analysis-filters {
     grid-template-columns: 1fr;
   }
 

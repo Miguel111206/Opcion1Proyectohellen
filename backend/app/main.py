@@ -1,13 +1,15 @@
 import logging
 import os
 import time
+from datetime import date, timedelta
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from sqlalchemy import inspect, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .analysis import build_analysis, consumption_level_for, energy_for, estimate_power
 from .auth import create_access_token, get_current_user, hash_password, verify_password
@@ -24,6 +26,7 @@ def initialize_database(max_attempts: int = 20, delay_seconds: float = 2.0) -> N
     for attempt in range(1, max_attempts + 1):
         try:
             Base.metadata.create_all(bind=engine)
+            ensure_schema_updates()
             logger.info("Base de datos lista")
             return
         except OperationalError:
@@ -32,6 +35,17 @@ def initialize_database(max_attempts: int = 20, delay_seconds: float = 2.0) -> N
                 raise
             logger.warning("Base de datos no disponible, reintento %s/%s", attempt, max_attempts)
             time.sleep(delay_seconds)
+
+
+def ensure_schema_updates() -> None:
+    inspector = inspect(engine)
+    if "activities" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("activities")}
+    if "activity_date" not in columns:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE activities ADD COLUMN activity_date DATE NULL"))
+            connection.execute(text("UPDATE activities SET activity_date = DATE(created_at) WHERE activity_date IS NULL"))
 
 
 initialize_database()
@@ -80,6 +94,31 @@ def owned_device(db: Session, user: User, device_id: int) -> Device:
     if not device:
         raise HTTPException(status_code=404, detail="Dispositivo no encontrado")
     return device
+
+
+def period_bounds(period: str, reference_date: date | None) -> tuple[date | None, date | None, str]:
+    if period == "all":
+        return None, None, "Todo el historial"
+    anchor = reference_date or date.today()
+    if period == "day":
+        return anchor, anchor, f"Dia {anchor}"
+    if period == "week":
+        start = anchor - timedelta(days=anchor.weekday())
+        end = start + timedelta(days=6)
+        return start, end, f"Semana {start} a {end}"
+    if period == "month":
+        start = anchor.replace(day=1)
+        end = (start.replace(year=start.year + 1, month=1, day=1) if start.month == 12 else start.replace(month=start.month + 1, day=1)) - timedelta(days=1)
+        return start, end, f"Mes {start:%Y-%m}"
+    raise HTTPException(status_code=422, detail="Periodo invalido. Usa day, week, month o all.")
+
+
+def device_activities_query(db: Session, user: User, device_id: int, period: str = "all", reference_date: date | None = None):
+    start, end, _ = period_bounds(period, reference_date)
+    query = db.query(Activity).filter(Activity.device_id == device_id, Activity.user_id == user.id)
+    if start:
+        query = query.filter(Activity.activity_date >= start, Activity.activity_date <= end)
+    return query.order_by(Activity.activity_date, Activity.created_at)
 
 
 @app.get("/health")
@@ -138,7 +177,7 @@ def delete_device(device_id: int, user: User = Depends(get_current_user), db: Se
 @app.get("/devices/{device_id}/activities", response_model=list[ActivityOut])
 def list_activities(device_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     owned_device(db, user, device_id)
-    activities = db.query(Activity).filter(Activity.device_id == device_id, Activity.user_id == user.id).order_by(Activity.created_at).all()
+    activities = db.query(Activity).filter(Activity.device_id == device_id, Activity.user_id == user.id).order_by(Activity.activity_date, Activity.created_at).all()
     return [
         {
             "id": activity.id,
@@ -149,6 +188,7 @@ def list_activities(device_id: int, user: User = Depends(get_current_user), db: 
             "brightness": activity.brightness,
             "connection_type": activity.connection_type,
             "saving_mode": activity.saving_mode,
+            "activity_date": activity.activity_date,
             "energy_wh": round(energy_for(activity), 2),
             "created_at": activity.created_at,
         }
@@ -165,6 +205,7 @@ def create_activity(device_id: int, payload: ActivityCreate, user: User = Depend
         device_id=device_id,
         app_name=payload.app_name,
         duration_minutes=payload.duration_minutes,
+        activity_date=payload.activity_date,
         power_watts=power_watts,
         consumption_level=consumption_level_for(power_watts),
         brightness=payload.brightness,
@@ -183,6 +224,7 @@ def create_activity(device_id: int, payload: ActivityCreate, user: User = Depend
         "brightness": activity.brightness,
         "connection_type": activity.connection_type,
         "saving_mode": activity.saving_mode,
+        "activity_date": activity.activity_date,
         "energy_wh": round(energy_for(activity), 2),
         "created_at": activity.created_at,
     }
@@ -199,10 +241,18 @@ def delete_activity(activity_id: int, user: User = Depends(get_current_user), db
 
 
 @app.post("/devices/{device_id}/analysis", response_model=AnalysisOut)
-def create_analysis(device_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def create_analysis(
+    device_id: int,
+    period: str = Query("all", pattern="^(day|week|month|all)$"),
+    reference_date: date | None = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     device = owned_device(db, user, device_id)
-    activities = db.query(Activity).filter(Activity.device_id == device_id, Activity.user_id == user.id).order_by(Activity.created_at).all()
+    _, _, period_label = period_bounds(period, reference_date)
+    activities = device_activities_query(db, user, device_id, period, reference_date).all()
     result = build_analysis(device, activities)
+    result["period_label"] = period_label
     analysis = AnalysisResult(user_id=user.id, device_id=device_id, **{k: result[k] for k in [
         "total_energy_wh", "battery_used_percent", "battery_remaining_percent", "highest_consumption_app", "critical_period", "recommendation"
     ]})
@@ -218,16 +268,18 @@ def latest_analysis(device_id: int, user: User = Depends(get_current_user), db: 
     analysis = db.query(AnalysisResult).filter(AnalysisResult.device_id == device_id, AnalysisResult.user_id == user.id).order_by(AnalysisResult.created_at.desc()).first()
     if not analysis:
         raise HTTPException(status_code=404, detail="No hay analisis")
-    activities = db.query(Activity).filter(Activity.device_id == device.id, Activity.user_id == user.id).order_by(Activity.created_at).all()
+    activities = db.query(Activity).filter(Activity.device_id == device.id, Activity.user_id == user.id).order_by(Activity.activity_date, Activity.created_at).all()
     live = build_analysis(device, activities)
+    live["period_label"] = "Todo el historial"
     return analysis_payload(analysis, live)
 
 
 @app.get("/devices/{device_id}/analysis/history", response_model=list[AnalysisOut])
 def analysis_history(device_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     device = owned_device(db, user, device_id)
-    activities = db.query(Activity).filter(Activity.device_id == device.id, Activity.user_id == user.id).order_by(Activity.created_at).all()
+    activities = db.query(Activity).filter(Activity.device_id == device.id, Activity.user_id == user.id).order_by(Activity.activity_date, Activity.created_at).all()
     live = build_analysis(device, activities)
+    live["period_label"] = "Todo el historial"
     analyses = db.query(AnalysisResult).filter(AnalysisResult.device_id == device_id, AnalysisResult.user_id == user.id).order_by(AnalysisResult.created_at.desc()).limit(20).all()
     return [analysis_payload(item, live) for item in analyses]
 
@@ -243,5 +295,9 @@ def analysis_payload(analysis: AnalysisResult, live: dict) -> dict:
         "recommendation": analysis.recommendation,
         "timeline": live["timeline"],
         "app_energy": live["app_energy"],
+        "daily_energy": live["daily_energy"],
+        "highest_consumption_day": live["highest_consumption_day"],
+        "lowest_consumption_day": live["lowest_consumption_day"],
+        "period_label": live.get("period_label", "Todo el historial"),
         "created_at": analysis.created_at,
     }

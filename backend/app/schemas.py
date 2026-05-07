@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -44,6 +44,7 @@ class DeviceOut(DeviceCreate):
 class ActivityCreate(BaseModel):
     app_name: str = Field(min_length=2, max_length=120)
     duration_minutes: float = Field(gt=0, le=1440)
+    activity_date: date = Field(default_factory=date.today)
     brightness: str = "Medio"
     connection_type: str = "WiFi"
     saving_mode: str = "Desactivado"
@@ -72,6 +73,13 @@ class AppEnergy(BaseModel):
     energy_wh: float
 
 
+class DailyEnergy(BaseModel):
+    date: date
+    energy_wh: float
+    battery_used_percent: float
+    screen_minutes: float
+
+
 class AnalysisOut(BaseModel):
     id: int
     total_energy_wh: float
@@ -82,6 +90,10 @@ class AnalysisOut(BaseModel):
     recommendation: str
     timeline: list[TimelinePoint]
     app_energy: list[AppEnergy]
+    daily_energy: list[DailyEnergy]
+    highest_consumption_day: str
+    lowest_consumption_day: str
+    period_label: str
     created_at: datetime
 
     model_config = {"from_attributes": True}
