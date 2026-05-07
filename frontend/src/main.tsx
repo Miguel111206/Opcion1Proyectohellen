@@ -98,14 +98,29 @@ function App() {
     if (!token) return;
     const data = await authFetch("/devices");
     setDevices(data);
-    if (!selectedDeviceId && data.length) setSelectedDeviceId(data[0].id);
-  }, [authFetch, selectedDeviceId, token]);
+    setSelectedDeviceId((current) => {
+      if (data.some((device: Device) => device.id === current)) return current;
+      return data[0]?.id || null;
+    });
+    if (!data.length) {
+      setActivities([]);
+      setAnalysis(null);
+    }
+  }, [authFetch, token]);
 
   const loadActivities = React.useCallback(async () => {
-    if (!selectedDeviceId) return;
+    if (!selectedDeviceId) {
+      setActivities([]);
+      return;
+    }
+    if (devices.length && !devices.some((device) => device.id === selectedDeviceId)) {
+      setActivities([]);
+      setAnalysis(null);
+      return;
+    }
     const data = await authFetch(`/devices/${selectedDeviceId}/activities`);
     setActivities(data);
-  }, [authFetch, selectedDeviceId]);
+  }, [authFetch, devices, selectedDeviceId]);
 
   React.useEffect(() => {
     if (!token) return;
@@ -124,6 +139,8 @@ function App() {
     setDevices([]);
     setActivities([]);
     setAnalysis(null);
+    setSelectedDeviceId(null);
+    setMessage("");
   }
 
   async function handleAuth(payload: { name?: string; email: string; password: string }, mode: "login" | "register") {
@@ -138,6 +155,10 @@ function App() {
       setMessage(readableError(data));
       return;
     }
+    setDevices([]);
+    setActivities([]);
+    setAnalysis(null);
+    setSelectedDeviceId(null);
     localStorage.setItem("token", data.access_token);
     setToken(data.access_token);
     setUser(data.user);
@@ -157,7 +178,10 @@ function App() {
         }),
       });
       setSelectedDeviceId(device.id);
-      await loadDevices();
+      setDevices((current) => [device, ...current.filter((item) => item.id !== device.id)]);
+      setActivities([]);
+      setAnalysis(null);
+      setMessage("");
       event.currentTarget.reset();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No se pudo crear el dispositivo");
