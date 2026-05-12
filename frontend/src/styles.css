@@ -132,8 +132,7 @@ button {
 
 .side {
   align-self: start;
-  position: sticky;
-  top: 20px;
+  position: relative;
 }
 
 .stack {
@@ -217,6 +216,10 @@ input:focus, select:focus {
   display: grid;
   gap: 10px;
   margin-top: 16px;
+}
+
+.device-list {
+  align-content: start;
 }
 
 .field {
