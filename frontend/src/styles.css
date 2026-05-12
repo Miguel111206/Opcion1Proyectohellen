@@ -97,6 +97,7 @@ button {
   display: grid;
   grid-template-columns: 310px 1fr;
   gap: 20px;
+  align-items: stretch;
 }
 
 .workspace {
@@ -131,8 +132,8 @@ button {
 }
 
 .side {
-  align-self: start;
   position: relative;
+  height: 100%;
 }
 
 .stack {
