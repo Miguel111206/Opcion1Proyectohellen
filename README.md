@@ -17,8 +17,8 @@ docker compose up --build
 Servicios:
 
 - Frontend: http://localhost:5173
-- Backend API: http://localhost:8000
-- Docs API: http://localhost:8000/docs
+- Backend API: http://localhost:8002
+- Docs API: http://localhost:8002/docs
 - MySQL local: localhost:3308
 - DB: proyectobateria
 - Usuario DB: root

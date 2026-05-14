@@ -23,8 +23,7 @@ services:
       JWT_SECRET: batterycurve-local-secret
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
     ports:
-      - "8000:8000"
-      - "8001:8000"
+      - "8002:8000"
     depends_on:
       mysql:
         condition: service_healthy
@@ -33,7 +32,7 @@ services:
     build:
       context: ./frontend
       args:
-        VITE_API_URL: http://localhost:8000
+        VITE_API_URL: http://localhost:8002
     restart: unless-stopped
     ports:
       - "5173:80"

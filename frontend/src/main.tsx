@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { BatteryCharging, CalendarDays, Clock3, Cpu, FileText, LogOut, Play, Plus, Smartphone, Trash2, Zap } from "lucide-react";
 import "./styles.css";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8002";
 
 type User = { id: number; name: string; email: string };
 type Device = { id: number; name: string; type: string; battery_capacity_wh: number };
